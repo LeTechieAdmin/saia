@@ -249,7 +249,7 @@ export default function NominationsFrontend() {
     }
 
     if (!isValidPhone(form.nominatorPhone)) {
-      return "Nominator phone is invalid.";
+      return "Nominator phone must be exactly 10 digits.";
     }
 
     if (!isValidEmail(form.nominatorEmail)) {
@@ -269,11 +269,11 @@ export default function NominationsFrontend() {
     if (isBusiness) {
       if (!form.businessName.trim()) return "Business name is required.";
       if (!form.ownerManagerName.trim()) return "Owner / manager name is required.";
-      if (!isValidPhone(form.businessPhone)) return "Business phone is invalid.";
+      if (!isValidPhone(form.businessPhone)) return "Business phone must be exactly 10 digits.";
       if (!isValidEmail(form.businessEmail)) return "Business email is invalid.";
     } else {
       if (!form.nomineeFullName.trim()) return "Nominee full name is required.";
-      if (!isValidPhone(form.nomineePhone)) return "Nominee phone is invalid.";
+      if (!isValidPhone(form.nomineePhone)) return "Nominee phone must be exactly 10 digits.";
       if (!isValidEmail(form.nomineeEmail)) return "Nominee email is invalid.";
     }
 
@@ -290,7 +290,7 @@ export default function NominationsFrontend() {
 
     if (needsParentBlock) {
       if (!form.parentGuardianName.trim()) return "Parent/Guardian name is required.";
-      if (!isValidPhone(form.parentPhone)) return "Parent phone is invalid.";
+      if (!isValidPhone(form.parentPhone)) return "Parent phone must be exactly 10 digits.";
       if (!isValidEmail(form.parentEmail)) return "Parent email is invalid.";
       if (!form.parentConsentConfirmed) return "Parent/guardian consent is required for nominee under 18.";
     }
@@ -311,7 +311,7 @@ export default function NominationsFrontend() {
       const referee = referees[i];
       if (!referee.name.trim()) return `Referee ${i + 1} name is required.`;
       if (!isValidEmail(referee.email)) return `Referee ${i + 1} email is invalid.`;
-      if (!isValidPhone(referee.phone)) return `Referee ${i + 1} phone is invalid.`;
+      if (!isValidPhone(referee.phone)) return `Referee ${i + 1} phone must be exactly 10 digits.`;
       if (!referee.relation.trim()) return `Referee ${i + 1} relationship is required.`;
       if (referee.relation.toLowerCase() === "family") {
         return "Immediate family members are not eligible referees.";

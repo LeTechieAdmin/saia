@@ -417,7 +417,11 @@ export function isAwardCategory(value: string): value is AwardCategory {
 }
 
 export function normalizePhone(value: string): string {
-  return value.replace(/\D/g, "");
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+  return digits;
 }
 
 export function isValidEmail(value: string): boolean {
@@ -426,7 +430,7 @@ export function isValidEmail(value: string): boolean {
 
 export function isValidPhone(value: string): boolean {
   const digits = normalizePhone(value);
-  return digits.length >= 10;
+  return digits.length === 10;
 }
 
 export function getAgeOnDate(dateOfBirth: string, onDate: Date): number {

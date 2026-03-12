@@ -219,7 +219,7 @@ export async function POST(request: Request) {
 
   if (!nominatorFullName || !isValidPhone(nominatorPhone) || !isValidEmail(nominatorEmail) || !nominatorRelationship) {
     return NextResponse.json(
-      { ok: false, error: "Valid nominator name, phone, email, and relationship are required." },
+      { ok: false, error: "Valid nominator name, 10-digit phone, email, and relationship are required." },
       { status: 400 },
     );
   }
@@ -236,13 +236,13 @@ export async function POST(request: Request) {
   if (awardDefinition.isBusiness) {
     if (!businessName || !ownerManagerName || !isValidPhone(businessPhone) || !isValidEmail(businessEmail)) {
       return NextResponse.json(
-        { ok: false, error: "Business name, owner/manager, valid phone, and valid email are required." },
+        { ok: false, error: "Business name, owner/manager, 10-digit phone, and valid email are required." },
         { status: 400 },
       );
     }
   } else if (!nomineeFullName || !isValidPhone(nomineePhone) || !isValidEmail(nomineeEmail)) {
     return NextResponse.json(
-      { ok: false, error: "Nominee full name, valid phone, and valid email are required." },
+      { ok: false, error: "Nominee full name, 10-digit phone, and valid email are required." },
       { status: 400 },
     );
   }
@@ -307,7 +307,7 @@ export async function POST(request: Request) {
           {
             ok: false,
             error:
-              "Parent/guardian name, phone, email, and consent are required for Rising Star nominees under 18.",
+              "Parent/guardian name, 10-digit phone, email, and consent are required for Rising Star nominees under 18.",
           },
           { status: 400 },
         );
@@ -327,7 +327,7 @@ export async function POST(request: Request) {
 
     if (!name || !isValidEmail(email) || !isValidPhone(phone) || !relation) {
       return NextResponse.json(
-        { ok: false, error: "All referee fields are required with valid email/phone." },
+        { ok: false, error: "All referee fields are required, including a valid email and 10-digit phone." },
         { status: 400 },
       );
     }
