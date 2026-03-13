@@ -1,12 +1,8 @@
 import Airtable from "airtable";
 import { NextResponse } from "next/server";
 import { verifyRefereeToken } from "@/app/lib/refereeToken";
-
-const BASE_ID = process.env.AIRTABLE_BASE_ID || "appRaso1tDQvVu3Ry";
-const TABLES = {
-  nominations: "tblYVo7XWq6BVo9LY",
-  refereeForms: "tbl7nZgFnv39FoOt7",
-} as const;
+import { findRefereeFormLocation } from "@/app/lib/airtable";
+import { getNominationRecordContacts } from "@/app/lib/nominationRecord";
 
 type SubmitPayload = {
   nomineeName?: string;
@@ -103,8 +99,12 @@ export async function POST(
       return NextResponse.json({ ok: false, error: tokenCheck.reason }, { status: 403 });
     }
 
-    const base = new Airtable({ apiKey: pat }).base(BASE_ID);
-    const existingRecord = await base(TABLES.refereeForms).find(refereeFormId);
+    const location = await findRefereeFormLocation(pat, refereeFormId);
+    if (!location) {
+      return NextResponse.json({ ok: false, error: "Referee form was not found." }, { status: 404 });
+    }
+
+    const { base, tables, refereeForm: existingRecord } = location;
 
     const existingToken = extractField(existingRecord, ["Secure Token"]);
     if (existingToken && existingToken !== token) {
@@ -120,7 +120,7 @@ export async function POST(
       );
     }
 
-    await base(TABLES.refereeForms).update(refereeFormId, {
+    await base(tables.refereeForms).update(existingRecord.id, {
       "Form Statement": formStatement,
       "Submission Status": "Submitted",
       "Date Submitted": new Date().toISOString().slice(0, 10),
@@ -130,11 +130,11 @@ export async function POST(
     const nominationId = ((existingRecord.get("Nomination") as string[] | undefined) || [])[0];
 
     if (nominationId) {
-      const nominationRecord = await base(TABLES.nominations).find(nominationId);
+      const nominationRecord = await base(tables.nominations).find(nominationId);
       const refereeFormIds = (nominationRecord.get("Referee Forms") as string[] | undefined) || [];
 
       const linkedForms = await Promise.all(
-        refereeFormIds.map((id) => base(TABLES.refereeForms).find(id)),
+        refereeFormIds.map((id) => base(tables.refereeForms).find(id)),
       );
 
       const submittedCount = linkedForms.filter((record) => {
@@ -145,19 +145,20 @@ export async function POST(
       const workflowStatus =
         submittedCount >= 2 ? "Fully Complete" : submittedCount === 1 ? "Referee 1 Complete" : "Submitted";
 
-      await base(TABLES.nominations).update(nominationId, {
+      await base(tables.nominations).update(nominationId, {
         "Nomination Workflow Status": workflowStatus,
         "Nomination Status": submittedCount >= 2 ? "Completed" : "Submitted",
       });
 
       if (submittedCount >= 2) {
+        const nominationContacts = getNominationRecordContacts(nominationRecord);
+
         await callWebhook(process.env.COMPLETION_EMAIL_WEBHOOK_URL, {
           type: "nomination_fully_complete",
           nominationId,
           nominatorEmail: extractField(nominationRecord, ["Nominator Email"]),
           nomineeEmail:
-            extractField(nominationRecord, ["Nominee Email"]) ||
-            extractField(nominationRecord, ["Business Email"]),
+            nominationContacts.nomineeEmail || nominationContacts.businessEmail,
           nomineeName: extractField(nominationRecord, ["Nominee Name"]),
         });
       }

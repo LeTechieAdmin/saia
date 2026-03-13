@@ -8,18 +8,17 @@ import {
   normalizePhone,
   getAgeOnDate,
 } from "@/app/lib/awardConfig";
+import {
+  AIRTABLE_SHARED_TABLES,
+  createAirtableBase,
+  getCityTableSet,
+  normalizeCityName,
+} from "@/app/lib/airtable";
+import { getNominationRecordContacts } from "@/app/lib/nominationRecord";
 import { createRefereeToken } from "@/app/lib/refereeToken";
 
-const BASE_ID = process.env.AIRTABLE_BASE_ID || "appRaso1tDQvVu3Ry";
 const APP_BASE_URL =
   process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const TABLES = {
-  awards: "tblEYOCQmY6XdhC86",
-  nominations: "tblYVo7XWq6BVo9LY",
-  referees: "tbl2SV7PuUpSNa7dL",
-  refereeForms: "tbl7nZgFnv39FoOt7",
-  cities: "tbl8lzty1gF6b9ox7",
-} as const;
 
 type RefereeInput = {
   name?: string;
@@ -38,8 +37,6 @@ type AwardResponse = {
 type SubmitPayload = {
   city?: string;
   awardCategory?: string;
-  nominationDeadline?: string;
-  nomineeConsentConfirmed?: string;
 
   nominatorFullName?: string;
   nominatorPhone?: string;
@@ -161,10 +158,9 @@ export async function POST(request: Request) {
   }
 
   const city = payload.city?.trim() || "";
+  const resolvedCity = normalizeCityName(city);
   const awardCategory = payload.awardCategory?.trim() || "";
-  const nominationDeadline = payload.nominationDeadline?.trim() || "";
   const eligibilityConfirmed = "Yes";
-  const nomineeConsentConfirmed = payload.nomineeConsentConfirmed?.trim() || "";
 
   const nominatorFullName = payload.nominatorFullName?.trim() || "";
   const nominatorPhone = payload.nominatorPhone?.trim() || "";
@@ -199,22 +195,19 @@ export async function POST(request: Request) {
     answer: entry.answer?.trim() || "",
   }));
 
-  if (!city || !awardCategory || !nominationDeadline) {
+  if (!city || !awardCategory) {
     return NextResponse.json(
-      { ok: false, error: "City, award category, and referee deadline are required." },
+      { ok: false, error: "City and award category are required." },
       { status: 400 },
     );
+  }
+
+  if (!resolvedCity) {
+    return NextResponse.json({ ok: false, error: "Unsupported city." }, { status: 400 });
   }
 
   if (!isAwardCategory(awardCategory)) {
     return NextResponse.json({ ok: false, error: "Unsupported award category." }, { status: 400 });
-  }
-
-  if (nomineeConsentConfirmed !== "Yes") {
-    return NextResponse.json(
-      { ok: false, error: "Nominee consent must be confirmed as Yes to proceed." },
-      { status: 400 },
-    );
   }
 
   if (!nominatorFullName || !isValidPhone(nominatorPhone) || !isValidEmail(nominatorEmail) || !nominatorRelationship) {
@@ -348,16 +341,21 @@ export async function POST(request: Request) {
   }
 
   try {
-    const base = new Airtable({ apiKey: pat }).base(BASE_ID);
+    const cityTables = getCityTableSet(resolvedCity);
+    if (!cityTables) {
+      return NextResponse.json({ ok: false, error: "City Airtable tables are not configured." }, { status: 500 });
+    }
 
-    const [cities, awards, nominations] = await Promise.all([
-      base(TABLES.cities).select({ view: "Grid view" }).all(),
-      base(TABLES.awards).select({ view: "Grid view" }).all(),
-      base(TABLES.nominations).select({ view: "Grid view" }).all(),
+    const base = createAirtableBase(pat);
+
+    const cities = await base(AIRTABLE_SHARED_TABLES.cities).select({ view: "Grid view" }).all();
+    const [awards, nominations] = await Promise.all([
+      base(cityTables.awards).select({ view: "Grid view" }).all(),
+      base(cityTables.nominations).select({ view: "Grid view" }).all(),
     ]);
 
     const cityRecord = cities.find(
-      (record) => normalizeText(String(record.get("City Name") || "")) === normalizeText(city),
+      (record) => normalizeText(String(record.get("City Name") || "")) === normalizeText(resolvedCity),
     );
     if (!cityRecord) {
       return NextResponse.json({ ok: false, error: "Selected city was not found." }, { status: 400 });
@@ -366,13 +364,31 @@ export async function POST(request: Request) {
     const awardRecord = awards.find((record) => {
       const awardName = normalizeText(String(record.get("Award Name") || ""));
       const cityIds = (record.get("City") as string[] | undefined) || [];
-      return awardName === normalizeText(awardCategory) && (cityIds.length === 0 || cityIds.includes(cityRecord.id));
+      return (
+        awardName === normalizeText(awardCategory) &&
+        (cityIds.length === 0 || cityIds.includes(cityRecord.id))
+      );
     });
 
     if (!awardRecord) {
       return NextResponse.json(
         { ok: false, error: "Selected award category was not found for the selected city." },
         { status: 400 },
+      );
+    }
+
+    const nominationDeadline = safeDate(
+      extractField(awardRecord, ["Referee Deadline", "Deadline"]),
+    );
+
+    if (!nominationDeadline) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Referee deadline is not configured for the selected award. Please contact the organizer.",
+        },
+        { status: 500 },
       );
     }
 
@@ -397,23 +413,19 @@ export async function POST(request: Request) {
         return false;
       }
 
+      const recordContacts = getNominationRecordContacts(record);
+
       if (awardDefinition.isBusiness) {
-        const recordBusinessName = normalizeText(extractField(record, ["Business Name"]));
-        const recordBusinessEmail = normalizeText(extractField(record, ["Business Email"]));
         return (
           normalizedBusinessName.length > 0 &&
           normalizedBusinessEmail.length > 0 &&
-          recordBusinessName === normalizedBusinessName &&
-          recordBusinessEmail === normalizedBusinessEmail
+          normalizeText(recordContacts.businessName) === normalizedBusinessName &&
+          normalizeText(recordContacts.businessEmail) === normalizedBusinessEmail
         );
       }
 
-      const recordNomineeEmail = normalizeText(
-        extractField(record, ["Nominee Email", "Email", "Email Address"]),
-      );
-      const recordNomineePhone = normalizePhone(
-        extractField(record, ["Nominee Phone", "Phone", "Phone Number"]),
-      );
+      const recordNomineeEmail = normalizeText(recordContacts.nomineeEmail);
+      const recordNomineePhone = normalizePhone(recordContacts.nomineePhone);
 
       const duplicateByEmail =
         normalizedNomineeEmail.length > 0 &&
@@ -435,10 +447,9 @@ export async function POST(request: Request) {
     }
 
     const nominationPayload = {
-      city,
+      city: resolvedCity,
       awardCategory,
       eligibilityConfirmed,
-      nomineeConsentConfirmed,
       nominator: {
         fullName: nominatorFullName,
         phone: nominatorPhone,
@@ -469,12 +480,13 @@ export async function POST(request: Request) {
         consentConfirmed: parentConsentConfirmed,
       },
       awardResponses,
+      refereeDeadline: nominationDeadline,
       submittedAt: new Date().toISOString(),
     };
 
     const displayName = awardDefinition.isBusiness ? businessName : nomineeFullName;
 
-    const nominationCreate = await base(TABLES.nominations).create({
+    const nominationCreate = await base(cityTables.nominations).create({
       "Nominee Name": displayName,
       City: [cityRecord.id],
       Award: [awardRecord.id],
@@ -483,54 +495,17 @@ export async function POST(request: Request) {
       "Submission Date": new Date().toISOString().slice(0, 10),
 
       "Eligibility Confirmed": eligibilityConfirmed,
-      "Nominee Consent Confirmed": nomineeConsentConfirmed,
 
       "Nominator Full Name": nominatorFullName,
       "Nominator Phone": nominatorPhone,
       "Nominator Email": nominatorEmail,
       "Relationship to Nominee": nominatorRelationship,
 
-      "Nominee Email": nomineeEmail || undefined,
-      "Nominee Phone": nomineePhone || undefined,
-      Gender: gender || undefined,
-      "CV URL": cvUrl || undefined,
-
-      "Is Business Nomination": awardDefinition.isBusiness,
-      "Business Name": businessName || undefined,
-      "Owner / Manager Name": ownerManagerName || undefined,
-      "Business Phone": businessPhone || undefined,
-      "Business Email": businessEmail || undefined,
-      "Website Link": websiteLink || undefined,
-      "Social Media Links": socialMediaLinks || undefined,
-
-      "Still Going Strong 65+ Confirmed":
-        awardCategory === "Still Going Strong" ? answerMap.stillGoingStrongAgeConfirmed || "No" : undefined,
-      "Rising Star 14-19 Confirmed":
-        awardCategory === "Rising Star" ? answerMap.risingStarAgeConfirmed || "No" : undefined,
-      "Date of Birth": safeDate(dateOfBirth) || undefined,
-      "Parent/Guardian Name": parentGuardianName || undefined,
-      "Parent Phone": parentPhone || undefined,
-      "Parent Email": parentEmail || undefined,
-      "Parent Consent Confirmed": parentConsentConfirmed,
-
-      "Individual Duplicate Key (Email)":
-        !awardDefinition.isBusiness && nomineeEmail
-          ? `${normalizeText(nomineeEmail)}|${categoryKey}`
-          : undefined,
-      "Individual Duplicate Key (Phone)":
-        !awardDefinition.isBusiness && nomineePhone
-          ? `${normalizePhone(nomineePhone)}|${categoryKey}`
-          : undefined,
-      "Business Duplicate Key":
-        awardDefinition.isBusiness && businessName && businessEmail
-          ? `${normalizeText(businessName)}|${normalizeText(businessEmail)}|${categoryKey}`
-          : undefined,
-
       "Nomination Workflow Status": "Submitted",
       "Nomination Status": "Submitted",
     });
 
-    const refereeCreates = await base(TABLES.referees).create(
+    const refereeCreates = await base(cityTables.referees).create(
       referees.map((referee) => ({
         fields: {
           "Full Name": referee.name?.trim() || "",
@@ -546,7 +521,7 @@ export async function POST(request: Request) {
       })),
     );
 
-    const refereeForms = await base(TABLES.refereeForms).create(
+    const refereeForms = await base(cityTables.refereeForms).create(
       refereeCreates.map((refereeRecord) => ({
         fields: {
           Name: `${String(refereeRecord.get("Full Name") || "Referee")} - Referee Statement`,
@@ -565,9 +540,12 @@ export async function POST(request: Request) {
           ? new Date(`${deadlineDate}T23:59:59.000Z`).toISOString()
           : undefined;
         const token = createRefereeToken(refereeForm.id, expiryIso);
-        const link = `${APP_BASE_URL}referee/${refereeForm.id}?token=${encodeURIComponent(token)}`;
+        const link = new URL(
+          `/referee/${refereeForm.id}?token=${encodeURIComponent(token)}`,
+          APP_BASE_URL,
+        ).toString();
 
-        await base(TABLES.refereeForms).update(refereeForm.id, {
+        await base(cityTables.refereeForms).update(refereeForm.id, {
           Link: link,
           "User Link": link,
           "Secure Token": token,
@@ -589,7 +567,7 @@ export async function POST(request: Request) {
     await callWebhook(process.env.REFEREE_EMAIL_WEBHOOK_URL, {
       type: "referee_invites_ready",
       nominationId: nominationCreate.id,
-      city,
+      city: resolvedCity,
       awardCategory,
       nominatorEmail,
       nomineeEmail: awardDefinition.isBusiness ? businessEmail : nomineeEmail,

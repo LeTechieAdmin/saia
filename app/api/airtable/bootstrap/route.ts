@@ -1,14 +1,12 @@
 import Airtable from "airtable";
 import { NextResponse } from "next/server";
-
-const BASE_ID = process.env.AIRTABLE_BASE_ID || "appRaso1tDQvVu3Ry";
-const TABLE_IDS = {
-  awards: "tblEYOCQmY6XdhC86",
-  nominations: "tblYVo7XWq6BVo9LY",
-  referees: "tbl2SV7PuUpSNa7dL",
-  refereeForms: "tbl7nZgFnv39FoOt7",
-  cities: "tbl8lzty1gF6b9ox7",
-} as const;
+import {
+  AIRTABLE_BASE_ID,
+  AIRTABLE_CITY_TABLES,
+  AIRTABLE_SHARED_TABLES,
+  createAirtableBase,
+} from "@/app/lib/airtable";
+import { SUPPORTED_CITIES } from "@/app/lib/awardConfig";
 
 export async function GET() {
   const pat = process.env.AIRTABLE_PAT;
@@ -18,40 +16,104 @@ export async function GET() {
   }
 
   try {
-    const base = new Airtable({ apiKey: pat }).base(BASE_ID);
+    const base = createAirtableBase(pat);
 
-    const [cityRecords, awardRecords, refereeRecords, refereeFormRecords] =
-      await Promise.all([
-        base(TABLE_IDS.cities).select({ view: "Grid view" }).all(),
-        base(TABLE_IDS.awards).select({ view: "Grid view" }).all(),
-        base(TABLE_IDS.referees).select({ view: "Grid view" }).all(),
-        base(TABLE_IDS.refereeForms).select({ view: "Grid view" }).all(),
-      ]);
+    const cityRecords = await base(AIRTABLE_SHARED_TABLES.cities)
+      .select({ view: "Grid view" })
+      .all();
+
+    const cityData = await Promise.all(
+      SUPPORTED_CITIES.map(async (city) => {
+        const tables = AIRTABLE_CITY_TABLES[city];
+        const [awardRecords, refereeRecords, refereeFormRecords] =
+          await Promise.all([
+            base(tables.awards).select({ view: "Grid view" }).all(),
+            base(tables.referees).select({ view: "Grid view" }).all(),
+            base(tables.refereeForms).select({ view: "Grid view" }).all(),
+          ]);
+
+        return {
+          city,
+          tables,
+          awardRecords,
+          refereeRecords,
+          refereeFormRecords,
+        };
+      }),
+    ) as Array<{
+      city: string;
+      tables: {
+        awards: string;
+        nominations: string;
+        referees: string;
+        refereeForms: string;
+      };
+      awardRecords: readonly Airtable.Record<Airtable.FieldSet>[];
+      refereeRecords: readonly Airtable.Record<Airtable.FieldSet>[];
+      refereeFormRecords: readonly Airtable.Record<Airtable.FieldSet>[];
+    }>;
+
+    const cityIdByName = Object.fromEntries(
+      cityRecords.map((record) => [
+        String(record.get("City Name") || ""),
+        record.id,
+      ]),
+    ) as Record<string, string>;
 
     const cities = cityRecords.map((record) => ({
       id: record.id,
       name: String(record.get("City Name") || ""),
     }));
 
-    const awards = awardRecords.map((record) => ({
-      id: record.id,
-      name: String(record.get("Award Name") || ""),
-      cityIds: (record.get("City") as string[] | undefined) || [],
-      active: Boolean(record.get("Active Status")),
-    }));
+    const awards = cityData.flatMap(({ city, awardRecords }) =>
+      awardRecords.map((record) => {
+        const linkedCityIds = (record.get("City") as string[] | undefined) || [];
+        const impliedCityId = cityIdByName[city];
 
-    const refereeFormsSubmitted = refereeFormRecords.filter((record) => {
-      const status = String(record.get("Submission Status") || "").toLowerCase();
-      return status === "submitted";
-    }).length;
+        return {
+          id: record.id,
+          name: String(record.get("Award Name") || ""),
+          cityIds:
+            linkedCityIds.length > 0
+              ? linkedCityIds
+              : impliedCityId
+                ? [impliedCityId]
+                : [],
+          active: Boolean(record.get("Active Status")),
+        };
+      }),
+    );
+
+    const refereeFormsSubmitted = cityData.reduce((count, { refereeFormRecords }) => {
+      return (
+        count +
+        refereeFormRecords.filter((record) => {
+          const status = String(record.get("Submission Status") || "").toLowerCase();
+          return status === "submitted";
+        }).length
+      );
+    }, 0);
+
+    const refereesCount = cityData.reduce(
+      (count, { refereeRecords }) => count + refereeRecords.length,
+      0,
+    );
+
+    const refereeFormsCount = cityData.reduce(
+      (count, { refereeFormRecords }) => count + refereeFormRecords.length,
+      0,
+    );
 
     return NextResponse.json({
-      baseId: BASE_ID,
-      tables: TABLE_IDS,
+      baseId: AIRTABLE_BASE_ID,
+      tables: {
+        cities: AIRTABLE_SHARED_TABLES.cities,
+        byCity: AIRTABLE_CITY_TABLES,
+      },
       cities,
       awards,
-      refereesCount: refereeRecords.length,
-      refereeFormsCount: refereeFormRecords.length,
+      refereesCount,
+      refereeFormsCount,
       refereeFormsSubmitted,
     });
   } catch (error) {

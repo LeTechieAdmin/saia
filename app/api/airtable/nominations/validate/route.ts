@@ -1,11 +1,16 @@
 import Airtable from "airtable";
 import { NextResponse } from "next/server";
 import { AWARD_DEFINITIONS, isAwardCategory, normalizePhone } from "@/app/lib/awardConfig";
-
-const BASE_ID = process.env.AIRTABLE_BASE_ID || "appRaso1tDQvVu3Ry";
-const NOMINATIONS_TABLE_ID = "tblYVo7XWq6BVo9LY";
+import {
+  AIRTABLE_CITY_TABLES,
+  createAirtableBase,
+  getCityTableSet,
+  normalizeCityName,
+} from "@/app/lib/airtable";
+import { getNominationRecordContacts } from "@/app/lib/nominationRecord";
 
 type ValidationPayload = {
+  city?: string;
   awardCategory?: string;
   nomineeEmail?: string;
   nomineePhone?: string;
@@ -46,9 +51,15 @@ export async function POST(request: Request) {
   }
 
   const awardCategory = payload.awardCategory?.trim() || "";
+  const city = payload.city?.trim() || "";
+  const resolvedCity = city ? normalizeCityName(city) : null;
 
   if (!isAwardCategory(awardCategory)) {
     return NextResponse.json({ ok: false, error: "Award category is required." }, { status: 400 });
+  }
+
+  if (city && !resolvedCity) {
+    return NextResponse.json({ ok: false, error: "Unsupported city." }, { status: 400 });
   }
 
   const isBusiness = AWARD_DEFINITIONS[awardCategory].isBusiness;
@@ -72,8 +83,32 @@ export async function POST(request: Request) {
   }
 
   try {
-    const base = new Airtable({ apiKey: pat }).base(BASE_ID);
-    const records = await base(NOMINATIONS_TABLE_ID).select({ view: "Grid view" }).all();
+    const base = createAirtableBase(pat);
+    const tableGroups = resolvedCity
+      ? [getCityTableSet(resolvedCity)].filter(
+          (tables): tables is NonNullable<ReturnType<typeof getCityTableSet>> => Boolean(tables),
+        )
+      : Object.values(AIRTABLE_CITY_TABLES);
+
+    const dataGroups = await Promise.all(
+      tableGroups.map(async (tables) => {
+        const [awardRecords, nominationRecords] = await Promise.all([
+          base(tables.awards).select({ view: "Grid view" }).all(),
+          base(tables.nominations).select({ view: "Grid view" }).all(),
+        ]);
+
+        return { awardRecords, nominationRecords };
+      }),
+    );
+
+    const records = dataGroups.flatMap((group) => group.nominationRecords);
+    const matchingAwardIds = new Set(
+      dataGroups.flatMap((group) =>
+        group.awardRecords
+          .filter((record) => normalizeText(String(record.get("Award Name") || "")) === normalizeText(awardCategory))
+          .map((record) => record.id),
+      ),
+    );
 
     const categoryKey = normalizeText(awardCategory);
     const duplicate = records.find((record) => {
@@ -84,27 +119,26 @@ export async function POST(request: Request) {
         return false;
       }
 
+      const recordAwardIds = (record.get("Award") as string[] | undefined) || [];
       const recordCategory = normalizeText(extractField(record, ["Award Name (Lookup)"]));
-      if (!recordCategory.includes(categoryKey)) {
+      const categoryMatches =
+        recordCategory.includes(categoryKey) ||
+        recordAwardIds.some((id) => matchingAwardIds.has(id));
+      if (!categoryMatches) {
         return false;
       }
 
-      if (isBusiness) {
-        const recordBusinessName = normalizeText(extractField(record, ["Business Name"]));
-        const recordBusinessEmail = normalizeText(extractField(record, ["Business Email"]));
+      const recordContacts = getNominationRecordContacts(record);
 
+      if (isBusiness) {
         return (
-          normalizeText(businessName) === recordBusinessName &&
-          normalizeText(businessEmail) === recordBusinessEmail
+          normalizeText(businessName) === normalizeText(recordContacts.businessName) &&
+          normalizeText(businessEmail) === normalizeText(recordContacts.businessEmail)
         );
       }
 
-      const recordNomineeEmail = normalizeText(
-        extractField(record, ["Nominee Email", "Email", "Email Address"]),
-      );
-      const recordNomineePhone = normalizePhone(
-        extractField(record, ["Nominee Phone", "Phone", "Phone Number"]),
-      );
+      const recordNomineeEmail = normalizeText(recordContacts.nomineeEmail);
+      const recordNomineePhone = normalizePhone(recordContacts.nomineePhone);
 
       const duplicateByEmail = nomineeEmail
         ? normalizeText(nomineeEmail) === recordNomineeEmail

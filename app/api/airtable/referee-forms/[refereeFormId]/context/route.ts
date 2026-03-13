@@ -1,14 +1,7 @@
 import Airtable from "airtable";
 import { NextResponse } from "next/server";
 import { verifyRefereeToken } from "@/app/lib/refereeToken";
-
-const BASE_ID = process.env.AIRTABLE_BASE_ID || "appRaso1tDQvVu3Ry";
-const TABLES = {
-  awards: "tblEYOCQmY6XdhC86",
-  nominations: "tblYVo7XWq6BVo9LY",
-  referees: "tbl2SV7PuUpSNa7dL",
-  refereeForms: "tbl7nZgFnv39FoOt7",
-} as const;
+import { findRefereeFormLocation } from "@/app/lib/airtable";
 
 function extractField(record: Airtable.Record<Airtable.FieldSet>, candidates: string[]) {
   for (const fieldName of candidates) {
@@ -80,8 +73,12 @@ export async function GET(
       return NextResponse.json({ error: tokenCheck.reason }, { status: 403 });
     }
 
-    const base = new Airtable({ apiKey: pat }).base(BASE_ID);
-    const refereeForm = await base(TABLES.refereeForms).find(refereeFormId);
+    const location = await findRefereeFormLocation(pat, refereeFormId);
+    if (!location) {
+      return NextResponse.json({ error: "Referee form was not found." }, { status: 404 });
+    }
+
+    const { base, tables, refereeForm } = location;
 
     const storedToken = extractField(refereeForm, ["Secure Token"]);
     if (storedToken && storedToken !== token) {
@@ -91,14 +88,14 @@ export async function GET(
     const nominationId = ((refereeForm.get("Nomination") as string[] | undefined) || [])[0];
     const refereeId = ((refereeForm.get("Referee") as string[] | undefined) || [])[0];
 
-    const nomination = nominationId ? await base(TABLES.nominations).find(nominationId) : null;
-    const referee = refereeId ? await base(TABLES.referees).find(refereeId) : null;
+    const nomination = nominationId ? await base(tables.nominations).find(nominationId) : null;
+    const referee = refereeId ? await base(tables.referees).find(refereeId) : null;
 
     const awardId = nomination
       ? (((nomination.get("Award") as string[] | undefined) || [])[0] ?? "")
       : "";
 
-    const award = awardId ? await base(TABLES.awards).find(awardId) : null;
+    const award = awardId ? await base(tables.awards).find(awardId) : null;
 
     const awardName = award
       ? extractField(award, ["Award Name", "Name", "Title"]) || "Award"

@@ -24,8 +24,6 @@ type RefereeContact = {
 type NominationFormState = {
   city: string;
   awardCategory: string;
-  nominationDeadline: string;
-  nomineeConsentConfirmed: string;
 
   nominatorFullName: string;
   nominatorPhone: string;
@@ -75,16 +73,9 @@ const emptyReferee: RefereeContact = {
   relationOther: "",
 };
 
-const today = new Date().toISOString().slice(0, 10);
-const defaultDeadline = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30)
-  .toISOString()
-  .slice(0, 10);
-
 const initialForm: NominationFormState = {
   city: "",
   awardCategory: "",
-  nominationDeadline: defaultDeadline,
-  nomineeConsentConfirmed: "",
 
   nominatorFullName: "",
   nominatorPhone: "",
@@ -121,6 +112,14 @@ function answerFor(
   return form.awardAnswers[questionId] || "";
 }
 
+function hasTooManyPhoneDigits(value: string) {
+  return value.replace(/\D/g, "").length > 11;
+}
+
+function normalizeEmailInput(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
 export default function NominationsFrontend() {
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState("");
@@ -155,14 +154,13 @@ export default function NominationsFrontend() {
 
   const filteredAwards = useMemo(() => {
     const selectedCityId = cityIdByName[form.city] || "";
+    if (!selectedCityId) {
+      return [];
+    }
+
     return awardOptions
       .filter((award) => award.active)
-      .filter((award) => {
-        if (!selectedCityId || award.cityIds.length === 0) {
-          return true;
-        }
-        return award.cityIds.includes(selectedCityId);
-      })
+      .filter((award) => award.cityIds.length === 0 || award.cityIds.includes(selectedCityId))
       .filter((award) => AWARD_CATEGORIES.includes(award.name as (typeof AWARD_CATEGORIES)[number]));
   }, [awardOptions, cityIdByName, form.city]);
 
@@ -231,6 +229,13 @@ export default function NominationsFrontend() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function updatePhoneField<K extends keyof NominationFormState>(key: K, value: string) {
+    if (hasTooManyPhoneDigits(value)) {
+      return;
+    }
+    updateField(key, value as NominationFormState[K]);
+  }
+
   function validateClientSide() {
     if (!form.city || !SUPPORTED_CITIES.includes(form.city as (typeof SUPPORTED_CITIES)[number])) {
       return "City is required.";
@@ -238,10 +243,6 @@ export default function NominationsFrontend() {
 
     if (!isAwardCategory(form.awardCategory)) {
       return "Award category is required.";
-    }
-
-    if (form.nomineeConsentConfirmed !== "Yes") {
-      return "Nominee consent must be confirmed as Yes to proceed.";
     }
 
     if (!form.nominatorFullName.trim()) {
@@ -385,7 +386,7 @@ export default function NominationsFrontend() {
         <>
           <section className="panel">
             <h2>1. City and Award</h2>
-            <p className="supporting-text">Select city, award category, and referral deadline.</p>
+            <p className="supporting-text">Select city and award category.</p>
             {bootstrapLoading && <p className="supporting-text">Loading Airtable data...</p>}
             {bootstrapError && <p className="error-text">Airtable load failed: {bootstrapError}</p>}
 
@@ -417,6 +418,7 @@ export default function NominationsFrontend() {
               <label>
                 Award category
                 <select
+                  disabled={!form.city}
                   value={form.awardCategory}
                   onChange={(event) =>
                     setForm((current) => ({
@@ -426,23 +428,13 @@ export default function NominationsFrontend() {
                     }))
                   }
                 >
-                  <option value="">Select category</option>
+                  <option value="">{form.city ? "Select category" : "Select city first"}</option>
                   {filteredAwards.map((award) => (
                     <option key={award.id} value={award.name}>
                       {award.name}
                     </option>
                   ))}
                 </select>
-              </label>
-
-              <label>
-                Referee deadline
-                <input
-                  type="date"
-                  min={today}
-                  value={form.nominationDeadline}
-                  onChange={(event) => updateField("nominationDeadline", event.target.value)}
-                />
               </label>
             </div>
           </section>
@@ -464,7 +456,8 @@ export default function NominationsFrontend() {
                 <input
                   type="tel"
                   value={form.nominatorPhone}
-                  onChange={(event) => updateField("nominatorPhone", event.target.value)}
+                  onChange={(event) => updatePhoneField("nominatorPhone", event.target.value)}
+                  maxLength={14}
                   placeholder="###-###-####"
                 />
               </label>
@@ -474,7 +467,12 @@ export default function NominationsFrontend() {
                 <input
                   type="email"
                   value={form.nominatorEmail}
-                  onChange={(event) => updateField("nominatorEmail", event.target.value)}
+                  onChange={(event) => updateField("nominatorEmail", normalizeEmailInput(event.target.value))}
+                  inputMode="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={254}
                 />
               </label>
 
@@ -528,7 +526,9 @@ export default function NominationsFrontend() {
                   <input
                     type="tel"
                     value={form.nomineePhone}
-                    onChange={(event) => updateField("nomineePhone", event.target.value)}
+                    onChange={(event) => updatePhoneField("nomineePhone", event.target.value)}
+                    maxLength={14}
+                    placeholder="###-###-####"
                   />
                 </label>
 
@@ -537,7 +537,12 @@ export default function NominationsFrontend() {
                   <input
                     type="email"
                     value={form.nomineeEmail}
-                    onChange={(event) => updateField("nomineeEmail", event.target.value)}
+                    onChange={(event) => updateField("nomineeEmail", normalizeEmailInput(event.target.value))}
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={254}
                   />
                 </label>
 
@@ -582,7 +587,9 @@ export default function NominationsFrontend() {
                   <input
                     type="tel"
                     value={form.businessPhone}
-                    onChange={(event) => updateField("businessPhone", event.target.value)}
+                    onChange={(event) => updatePhoneField("businessPhone", event.target.value)}
+                    maxLength={14}
+                    placeholder="###-###-####"
                   />
                 </label>
 
@@ -591,7 +598,12 @@ export default function NominationsFrontend() {
                   <input
                     type="email"
                     value={form.businessEmail}
-                    onChange={(event) => updateField("businessEmail", event.target.value)}
+                    onChange={(event) => updateField("businessEmail", normalizeEmailInput(event.target.value))}
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={254}
                   />
                 </label>
 
@@ -758,7 +770,9 @@ export default function NominationsFrontend() {
                       <input
                         type="tel"
                         value={form.parentPhone}
-                        onChange={(event) => updateField("parentPhone", event.target.value)}
+                        onChange={(event) => updatePhoneField("parentPhone", event.target.value)}
+                        maxLength={14}
+                        placeholder="###-###-####"
                       />
                     </label>
 
@@ -767,7 +781,12 @@ export default function NominationsFrontend() {
                       <input
                         type="email"
                         value={form.parentEmail}
-                        onChange={(event) => updateField("parentEmail", event.target.value)}
+                        onChange={(event) => updateField("parentEmail", normalizeEmailInput(event.target.value))}
+                        inputMode="email"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        maxLength={254}
                       />
                     </label>
 
@@ -816,10 +835,17 @@ export default function NominationsFrontend() {
                       onChange={(event) =>
                         setReferees((current) =>
                           current.map((entry, i) =>
-                            i === index ? { ...entry, email: event.target.value } : entry,
+                            i === index
+                              ? { ...entry, email: normalizeEmailInput(event.target.value) }
+                              : entry,
                           ),
                         )
                       }
+                      inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={254}
                     />
                   </label>
 
@@ -828,13 +854,20 @@ export default function NominationsFrontend() {
                     <input
                       type="tel"
                       value={referee.phone}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        if (hasTooManyPhoneDigits(nextValue)) {
+                          return;
+                        }
+
                         setReferees((current) =>
                           current.map((entry, i) =>
-                            i === index ? { ...entry, phone: event.target.value } : entry,
+                            i === index ? { ...entry, phone: nextValue } : entry,
                           ),
-                        )
-                      }
+                        );
+                      }}
+                      maxLength={14}
+                      placeholder="###-###-####"
                     />
                   </label>
 

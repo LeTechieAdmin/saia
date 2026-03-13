@@ -425,7 +425,11 @@ export function normalizePhone(value: string): string {
 }
 
 export function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 254) {
+    return false;
+  }
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
 }
 
 export function isValidPhone(value: string): boolean {
