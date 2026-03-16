@@ -490,6 +490,9 @@ export async function POST(request: Request) {
       Award: [awardRecord.id],
       "Nomination Form Responses": JSON.stringify(nominationPayload, null, 2),
       "Nomination Answers JSON": JSON.stringify(awardResponses),
+      "Nomination Answers Readable": awardResponses
+        .map((r: { question: string; answer: string }) => `**${r.question}**\n${r.answer}`)
+        .join("\n\n"),
       "Submission Date": new Date().toISOString().slice(0, 10),
 
       "Nominator Full Name": nominatorFullName,
