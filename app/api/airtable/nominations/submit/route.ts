@@ -239,6 +239,13 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!awardDefinition.isBusiness && !gender) {
+    return NextResponse.json(
+      { ok: false, error: "Gender is required." },
+      { status: 400 },
+    );
+  }
+
   if (awardDefinition.cvRequirement === "Required" && !cvUrl) {
     return NextResponse.json(
       { ok: false, error: "CV URL is required for this category." },

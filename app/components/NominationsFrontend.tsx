@@ -276,6 +276,7 @@ export default function NominationsFrontend() {
       if (!form.nomineeFullName.trim()) return "Nominee full name is required.";
       if (!isValidPhone(form.nomineePhone)) return "Nominee phone must be exactly 10 digits.";
       if (!isValidEmail(form.nomineeEmail)) return "Nominee email is invalid.";
+      if (!form.gender) return "Gender is required.";
     }
 
     const cvRequirement = AWARD_DEFINITIONS[form.awardCategory].cvRequirement;
