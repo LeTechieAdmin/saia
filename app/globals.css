@@ -115,7 +115,7 @@ body {
 }
 
 .consent-checks label {
-  display: flex;
+  display: flex !important;
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.92rem;
@@ -124,8 +124,10 @@ body {
 }
 
 .consent-checks input[type="checkbox"] {
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
 
 .panel {
