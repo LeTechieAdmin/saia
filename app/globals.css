@@ -448,6 +448,31 @@ select:focus {
     padding: 1rem;
   }
 
+  .hero-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+  }
+
+  .hero-credit {
+    transform: none;
+    margin-top: 0.15rem;
+    gap: 0.45rem;
+  }
+
+  .hero-credit-prefix {
+    font-size: 0.8rem;
+    margin-right: 0;
+  }
+
+  .hero-credit-le {
+    font-size: 1.25rem;
+  }
+
+  .hero-credit-techie {
+    font-size: 1.2rem;
+  }
+
   .radio-row {
     flex-direction: column;
     gap: 0.65rem;
