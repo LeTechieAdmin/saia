@@ -506,8 +506,10 @@ export async function POST(request: Request) {
       "Nominator Phone": nominatorPhone,
       "Nominator Email": nominatorEmail,
       "Relationship to Nominee": nominatorRelationship,
-      "Nominee Phone": awardDefinition.isBusiness ? undefined : nomineePhone,
-      "Nominee Email": awardDefinition.isBusiness ? undefined : nomineeEmail,
+      // Always fill Nominee Phone/Email — Airtable email automations read these,
+      // and business nominations otherwise leave them blank, failing the send.
+      "Nominee Phone": awardDefinition.isBusiness ? businessPhone : nomineePhone,
+      "Nominee Email": awardDefinition.isBusiness ? businessEmail : nomineeEmail,
       "Business Phone": awardDefinition.isBusiness ? businessPhone : undefined,
       "Business Email": awardDefinition.isBusiness ? businessEmail : undefined,
 

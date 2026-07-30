@@ -1,7 +1,9 @@
 import crypto from "crypto";
 
 export function createRefereeToken() {
-  return crypto.randomBytes(12).toString("base64url");
+  // Hex only: base64url tokens can contain "-"/"_", which email clients and
+  // messaging apps may treat as formatting and truncate the link at.
+  return crypto.randomBytes(12).toString("hex");
 }
 
 export function verifyTokenFormat(token: string) {
